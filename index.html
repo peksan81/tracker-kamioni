@@ -313,38 +313,47 @@
             }
         }
 
-        /**
-         * 2. Postavljanje Autentifikacije
+       /**
+         * 2. Postavljanje Autentifikacije (NOVA, JEDNOSTAVNIJA VERZIJA)
          */
         async function setupAuth() {
             try {
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
+                // Slušalac koji reaguje kada se korisnik prijavi ili odjavi
+                onAuthStateChanged(auth, (user) => {
+                    if (user && user.uid) {
+                        // Korisnik je uspešno prijavljen (anonimno)
                         console.log("User is signed in:", user.uid);
                         userId = user.uid;
+                        
+                        // Pokreni aplikaciju SAMO ako već nije pokrenuta
                         if (!isAppInitialized) {
-                             runApp();
-                             isAppInitialized = true;
+                            isAppInitialized = true;
+                            runApp();
                         }
                     } else {
-                         console.log("User is signed out, attempting anonymous sign in...");
-                         try {
-                            await signInAnonymously(auth);
-                            // Slušalac (onAuthStateChanged) će ponovo biti pokrenut
-                         } catch (e) {
-                             console.error("Error signing in anonymously:", e);
-                             showFatalError(e.message);
-                         }
+                        // Korisnik nije prijavljen, pokušaj ponovo
+                        console.log("User is not signed in, attempting anonymous sign in...");
+                        signInAnonymously(auth).catch((error) => {
+                            console.error("Failed to sign in anonymously:", error);
+                            showFatalError(error.message);
+                        });
                     }
                 });
-                
-                // Inicijalna provera
+
+                // Inicijalni pokušaj prijave ako niko nije prijavljen
                 if (!auth.currentUser) {
-                    console.log("No current user, attempting anonymous sign in...");
+                    console.log("No current user, triggering anonymous sign in...");
                     await signInAnonymously(auth);
+                    // onAuthStateChanged će "uhvatiti" ovu prijavu
                 } else {
-                    // Ako korisnik već postoji, onAuthStateChanged će ga uhvatiti
-                    console.log("User already signed in, letting listener handle it.");
+                    // Ako je korisnik već prijavljen, onAuthStateChanged će se svakako pokrenuti
+                    console.log("User already signed in, listener will handle it.");
+                    // Dodatna provera, za svaki slučaj
+                    if (!isAppInitialized) {
+                         userId = auth.currentUser.uid;
+                         isAppInitialized = true;
+                         runApp();
+                    }
                 }
 
             } catch (error) {
@@ -363,7 +372,7 @@
                 <div class="p-8 bg-red-100 text-red-700 rounded-lg max-w-lg mx-auto mt-10 shadow-lg">
                     <h2 class="font-bold text-2xl mb-4">Application Error</h2>
                     <p>The application could not start. Please check the instructions in the HTML file.</p>
-                    <p class.="mt-4 font-mono bg-red-50 p-3 rounded text-sm overflow-x-auto">${errorMessage}</p>
+                    <p class="mt-4 font-mono bg-red-50 p-3 rounded text-sm overflow-x-auto">${errorMessage}</p>
                 </div>
             `;
         }
@@ -490,7 +499,8 @@
                                 <div>
                                     <label class="block text-sm font-medium text-gray-600 mb-1">Purchase Date</label>
                                     <input type="date" name="invoice-date" required class="w-full px-4 py-2 border border-gray-300 rounded-lg" value="${new Date().toISOString().split('T')[0]}">
-                                </div>
+                                Evo ti ceo, kompletan fajl sa svim ispravkama.
+</div>
                                 <div class="md:col-span-3 text-right">
                                     <button type="submit" class="bg-green-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-green-700 transition shadow-sm">
                                         Add Invoice
