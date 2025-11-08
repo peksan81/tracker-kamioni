@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Truck Payment Tracker</title>
+    <!-- Učitavanje Tailwind CSS-a -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Biblioteke za PDF i JPEG eksport -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
+    <style>
+        /* Sakrivanje elemenata koji nisu aktivni */
+        .tab-content:not(.active) {
+            display: none;
+        }
+        .invoice-tab-content:not(.active) {
+            display: none;
+        }
+        
+        /* Stilovi za tabove */
+        .tab-link {
+            transition: all 0.3s ease;
+        }
+        .tab-link.active {
+            border-color: #3b82f6; /* plava */
+            background-color: #ffffff;
+            color: #3b82f6;
+        }
+        .tab-link:not(.active):hover {
+            background-color: #f9fafb; /* svetlo siva */
+        }
+
+        /* Stilovi za tabove faktura (unutrašnji) */
+        .invoice-tab-link {
+             transition: all 0.3s ease;
+             border-color: transparent;
+        }
+        .invoice-tab-link.active {
+            border-color: #10b981; /* zelena */
+            color: #10b981;
+            background-color: #f0fdf4;
+        }
+        .invoice-tab-link:not(.active):hover {
+            background-color: #f9fafb;
+        }
+
+        /* Stilovi za dugme za potvrdu brisanja */
+        .btn-delete-confirm {
+            background-color: #ef4444 !important; /* crvena */
+            color: #ffffff !important;
+        }
+
+        /* Stilovi za eksportovani PDF/sliku */
+        @media print {
+            body { margin: 0; padding: 0; }
+            .no-print { display: none !important; }
+            .printable-area { 
+                box-shadow: none !important; 
+                border: none !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+        }
+        
+        /* NOVI STILOVI ZA EKSPORT KONTEJNER (USKI FORMAT) */
+        .export-content {
+            /* display: none; */ /* Ne koristimo 'none' zbog html2canvas, kontrolišemo preko wrapper-a */
+            width: 400px; /* Fiksna širina za format računa */
+            padding: 20px; 
+            background: #ffffff; 
+            color: #111827; /* Tamno siva (skoro crna) */
+            font-family: Arial, sans-serif;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        .export-content h1 {
+            font-size: 24px;
+            font-weight: bold;
+            color: #111827;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+        .export-content .export-header {
+            text-align: center;
+            border-bottom: 2px dashed #d1d5db;
+            padding-bottom: 12px;
+            margin-bottom: 16px;
+        }
+        .export-content .export-header h2 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .export-content .export-header p {
+            font-size: 14px;
+            color: #4b5563;
+            margin: 2px 0;
+        }
+        .export-content .export-summary {
+            margin-bottom: 20px;
+        }
+        .export-content .summary-item {
+            display: flex;
+            justify-content: space-between;
+            font-size: 16px;
+            padding: 12px 0;
+            border-bottom: 1px solid #f3f4f6;
+        }
+        .export-content .summary-item .label {
+            color: #4b5563;
+            font-weight: normal;
+        }
+        .export-content .summary-item .value {
+            color: #111827;
+            font-weight: bold;
+        }
+        .export-content .summary-item .value.total {
+            font-size: 18px;
+        }
+        .export-content .summary-item .value.positive { color: #15803d; }
+        .export-content .summary-item .value.negative { color: #b91c1c; }
+
+        .export-content .export-history {
+            margin-top: 20px;
+        }
+        .export-content .export-history h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #111827;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 8px;
+            margin-bottom: 12px;
+        }
+        .export-content .payment-item {
+            font-size: 14px;
+            padding: 10px;
+            margin-bottom: 8px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            background-color: #f9fafb;
+        }
+        .export-content .payment-item .p-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .export-content .payment-item .p-amount {
+            font-size: 16px;
+            font-weight: bold;
+            color: #111827;
+        }
+        .export-content .payment-item .p-date {
+            font-weight: 500;
+            color: #4b5563;
+        }
+        .export-content .payment-item .p-details {
+            border-top: 1px dashed #d1d5db;
+            padding-top: 8px;
+            color: #4b5563;
+        }
+        .export-content .payment-item .p-details p {
+            margin: 4px 0;
+        }
+        
+        /* Wrapper za skrivanje kontejnera za eksport */
+        .export-wrapper-hidden {
+            position: fixed;
+            top: -9999px;
+            left: -9999px;
+            display: block; /* Uvek block da bi merenje radilo */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans antialiased">
+
+    <!-- Ekran za učitavanje -->
+    <div id="loading-screen" class="fixed inset-0 bg-white text-gray-700 flex flex-col items-center justify-center text-xl z-50">
+        <svg class="animate-spin h-8 w-8 text-blue-600 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        Loading application...
+    </div>
+
+    <!-- Glavni kontejner aplikacije -->
+    <div id="app" class="hidden">
+        <!-- Ovde će JavaScript iscrtati aplikaciju -->
+    </div>
+    
+    <!-- Kontejner za generisanje eksporta (skriven preko wrapper-a) -->
+    <div id="export-container-wrapper" class="export-wrapper-hidden">
+        <div id="export-container" class="export-content"></div>
+    </div>
+
+
+    <!-- Firebase i logika aplikacije -->
+    <script type="module">
+        // Importovanje potrebnih Firebase funkcija
+        import { initializeApp as fbInitializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            onAuthStateChanged 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            doc, 
+            getDoc, 
+            addDoc, 
+            setDoc, 
+            updateDoc, 
+            deleteDoc, 
+            onSnapshot, 
+            collection, 
+            query, 
+            where, 
+            getDocs,
+            Timestamp,
+            writeBatch,
+            setLogLevel,
+            enableIndexedDbPersistence // <-- IMPORT ZA OFLAJN
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Uvoženje globalnih biblioteka (jsPDF i html2canvas su već u <head>)
+        const { jsPDF } = window.jspdf;
+
+        // --- UPUTSTVO ZA SAMOSTALNO KORIŠĆENJE ---
+        // 1. Idi na https://firebase.google.com/ i napravi novi projekat.
+        // 2. U projektu, dodaj "Web App" (</>) i Firebase će ti dati `firebaseConfig` kod.
+        // 3. Nalepi taj kod ispod, umesto ovih lažnih vrednosti.
+        // 4. U Firebase konzoli, idi na "Authentication" -> "Sign-in method" i UKLJUČI "Anonymous".
+        // 5. Idi na "Firestore Database", napravi bazu i u "Rules" tabu postavi:
+        //    rules_version = '2';
+        //    service cloud.firestore {
+        //      match /databases/{database}/documents {
+        //        match /{allPaths=**} {
+        //          allow read, write: if request.auth != null;
+        //        }
+        //      }
+        //    }
+        // 6. Sačuvaj ovaj fajl kao "index.html" i otvori ga u pretraživaču.
+        
+        // --- TVOJ FIREBASE CONFIG (NALEPILI SMO GA RANIJE) ---
+        const firebaseConfig = {
+          apiKey: "AIzaSyBSr03ajl7_yFyWWq7deOTSiwZ49PPb2BE",
+          authDomain: "truck-payment-tracker.firebaseapp.com",
+          projectId: "truck-payment-tracker",
+          storageBucket: "truck-payment-tracker.firebasestorage.app",
+          messagingSenderId: "80296882971",
+          appId: "1:80296882971:web:9278c799c46934a67e59be",
+          measurementId: "G-8XZ8W3SCS1"
+        };
+        // --- KRAJ FIREBASE CONFIG-A ---
+
+
+        /**
+         * Glavna funkcija koja se pokreće kada se DOM učita.
+         */
+        document.addEventListener("DOMContentLoaded", () => {
+            console.log("DOM loaded. Starting initialization...");
+            if (firebaseConfig.apiKey === "YOUR_API_KEY_HERE") {
+                showFatalError("Firebase configuration is missing. Please edit the HTML file and add your Firebase config.");
+                return;
+            }
+            initFirebase();
+        });
+
+        const loadingScreen = document.getElementById("loading-screen");
+        const appContainer = document.getElementById("app");
+        const exportContainer = document.getElementById("export-container");
+        const exportWrapper = document.getElementById("export-container-wrapper");
+
+        // Globalne promenljive za Firebase servise
+        let db, auth, userId;
+        let isAppInitialized = false; // Zastavica
+
+        /**
+         * 1. Inicijalizacija Firebase-a
+         */
+        async function initFirebase() {
+            try {
+                console.log("Initializing Firebase app...");
+                const app = fbInitializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                setLogLevel('debug');
+
+                // --- OMOGUĆAVANJE OFLAJN RADA ---
+                try {
+                    await enableIndexedDbPersistence(db);
+                    console.log("Offline persistence enabled.");
+                } catch (err) {
+                    if (err.code == 'failed-precondition') {
+                        console.warn("Offline persistence failed (multiple tabs open).");
+                    } else if (err.code == 'unimplemented') {
+                        console.warn("Offline persistence is not supported in this browser.");
+                    } else {
+                        console.error("Error enabling offline persistence:", err);
+                    }
+                }
+                // --- KRAJ OFLAJN DELA ---
+
+                console.log("Setting up authentication...");
+                setupAuth();
+
+            } catch (error) {
+                console.error("Fatal initialization error:", error);
+                showFatalError(error.message);
+            }
+        }
+
+        /**
+         * 2. Postavljanje Autentifikacije
+         */
+        async function setupAuth() {
+            try {
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        console.log("User is signed in:", user.uid);
+                        userId = user.uid;
+                        if (!isAppInitialized) {
+                             runApp();
+                             isAppInitialized = true;
+                        }
+                    } else {
+                         console.log("User is signed out, attempting anonymous sign in...");
+                         try {
+                            await signInAnonymously(auth);
+                            // Slušalac (onAuthStateChanged) će ponovo biti pokrenut
+                         } catch (e) {
+                             console.error("Error signing in anonymously:", e);
+                             showFatalError(e.message);
+                         }
+                    }
+                });
+                
+                // Inicijalna provera
+                if (!auth.currentUser) {
+                    console.log("No current user, attempting anonymous sign in...");
+                    await signInAnonymously(auth);
+                } else {
+                    // Ako korisnik već postoji, onAuthStateChanged će ga uhvatiti
+                    console.log("User already signed in, letting listener handle it.");
+                }
+
+            } catch (error) {
+                console.error("Fatal authentication error:", error);
+                showFatalError(error.message);
+            }
+        }
+        
+        /**
+         * Prikazuje fatalnu grešku i zaustavlja učitavanje.
+         */
+        function showFatalError(errorMessage) {
+            loadingScreen.style.display = 'none';
+            appContainer.style.display = 'block';
+            appContainer.innerHTML = `
+                <div class="p-8 bg-red-100 text-red-700 rounded-lg max-w-lg mx-auto mt-10 shadow-lg">
+                    <h2 class="font-bold text-2xl mb-4">Application Error</h2>
+                    <p>The application could not start. Please check the instructions in the HTML file.</p>
+                    <p class.="mt-4 font-mono bg-red-50 p-3 rounded text-sm overflow-x-auto">${errorMessage}</p>
+                </div>
+            `;
+        }
+
+        /**
+         * 3. Pokretanje glavne logike aplikacije
+         */
+        function runApp() {
+            // Sigurnosna provera
+            if (!userId) {
+                console.error("runApp() called without a userId. Aborting.");
+                showFatalError("Authentication failed. User ID is null.");
+                return;
+            }
+            
+            loadingScreen.style.display = 'none';
+            appContainer.style.display = 'block';
+            console.log("runApp() started with userId:", userId);
+
+            // --- Putanje do baze (SAMOSTALNA VERZIJA) ---
+            const trucksColPath = `users/${userId}/trucks`;
+            const invoicesColPath = (truckId) => `users/${userId}/trucks/${truckId}/invoices`;
+            const paymentsColPath = (truckId, invoiceId) => `users/${userId}/trucks/${truckId}/invoices/${invoiceId}/payments`;
+
+            // --- Stanje aplikacije (u memoriji) ---
+            let state = {
+                trucks: [],
+                invoices: {}, // { truckId: [invoice1, invoice2] }
+                payments: {}, // { invoiceId: [payment1, payment2] }
+                activeTruckId: null,
+                activeInvoiceIds: {} // { truckId: 'invoiceId' }
+            };
+
+            // --- Formatiranje valute ---
+            const formatCurrency = (num) => (num || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+            // --- Formatiranje datuma ---
+            const formatDate = (dateString) => {
+                if (!dateString) return 'N/A';
+                // Assuming YYYY-MM-DD
+                const [year, month, day] = dateString.split('-');
+                return `${day}/${month}/${year}`; // Changed to DD/MM/YYYY
+            };
+            const formatDateForExport = (dateString) => {
+                if (!dateString) return 'N/A';
+                const date = new Date(dateString);
+                // Prilagodi za vremensku zonu (YYYY-MM-DD se tretira kao UTC)
+                date.setMinutes(date.getMinutes() + date.getTimezoneOffset());
+                return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+            };
+
+
+            // --- Glavna funkcija za iscrtavanje cele aplikacije ---
+            function renderApp() {
+                console.log("renderApp() called with state:", state);
+                appContainer.innerHTML = `
+                    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+                        <header class="mb-8">
+                            <h1 class="text-4xl font-bold text-gray-800">Truck Payment Tracker</h1>
+                            <p class="text-sm text-gray-500 mt-1">Your User ID: <span class="font-mono bg-gray-200 px-1 py-0.5 rounded">${userId}</span></p>
+                        </header>
+
+                        <!-- Forma za dodavanje novog kamiona -->
+                        <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+                            <h2 class="text-2xl font-semibold mb-4 text-gray-700">Add a New Truck</h2>
+                            <form id="add-truck-form" class="flex flex-col sm:flex-row sm:items-end gap-4">
+                                <div class="flex-grow">
+                                    <label for="truck-name" class="block text-sm font-medium text-gray-600 mb-1">Truck Name / ID</label>
+                                    <input type="text" id="truck-name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g., 6159">
+                                </div>
+                                <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-blue-700 transition duration-200 shadow-sm">
+                                    Add Truck
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Kontejner za tabove kamiona -->
+                        <div id="trucks-tabs-container" class="flex flex-wrap gap-2 border-b-2 border-gray-200 bg-gray-50 rounded-t-lg">
+                            ${state.trucks.map(truck => `
+                                <button class="tab-link text-lg font-medium px-5 py-3 border-b-4 ${truck.id === state.activeTruckId ? 'active' : ''}" data-truck-id="${truck.id}">
+                                    ${truck.name}
+                                </button>
+                            `).join('')}
+                        </div>
+
+                        <!-- Kontejner za sadržaj tabova -->
+                        <div id="trucks-content-container" class="bg-white rounded-b-lg shadow-lg border border-gray-200">
+                            ${state.trucks.map(truck => `
+                                <div class="tab-content ${truck.id === state.activeTruckId ? 'active' : ''}" data-truck-id="${truck.id}">
+                                    ${renderTruckContent(truck)}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+                attachEventListeners();
+            }
+
+            // --- Iscrtavanje sadržaja jednog taba (kamiona) ---
+            function renderTruckContent(truck) {
+                const truckInvoices = state.invoices[truck.id] || [];
+                const activeInvoiceId = state.activeInvoiceIds[truck.id];
+                
+                return `
+                    <div class="p-6">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-3xl font-semibold text-gray-800">Truck: ${truck.name}</h3>
+                            <button class="btn-delete text-sm text-red-500 hover:text-red-700 font-medium px-4 py-2 rounded-lg border border-red-200 hover:bg-red-50 transition" data-delete-truck-id="${truck.id}">
+                                Delete This Truck
+                            </button>
+                        </div>
+
+                        <!-- Forma za dodavanje nove fakture -->
+                        <div class="bg-gray-50 p-6 rounded-lg border border-gray-200 mb-8">
+                            <h4 class="text-xl font-semibold mb-4 text-gray-700">Add New Invoice</h4>
+                            <form class="add-invoice-form grid grid-cols-1 md:grid-cols-3 gap-4" data-truck-id="${truck.id}">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-600 mb-1">Invoice ID / Name</label>
+                                    <input type="text" name="invoice-name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder="e.g., INV-1001">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-600 mb-1">Starting Price</label>
+                                    <input type="number" step="0.01" name="invoice-price" required class="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder="e.g., 150000">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-600 mb-1">Purchase Date</label>
+                                    <input type="date" name="invoice-date" required class="w-full px-4 py-2 border border-gray-300 rounded-lg" value="${new Date().toISOString().split('T')[0]}">
+                                </div>
+                                <div class="md:col-span-3 text-right">
+                                    <button type="submit" class="bg-green-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-green-700 transition shadow-sm">
+                                        Add Invoice
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- Pretraga i tabovi faktura -->
+                        <div class="mb-4">
+                            <input type="text" class="invoice-search w-full px-4 py-2 border border-gray-300 rounded-lg" data-truck-id="${truck.id}" placeholder="Search invoices by name/ID...">
+                        </div>
+
+                        ${truckInvoices.length > 0 ? `
+                            <div class="flex border-b border-gray-200 overflow-x-auto">
+                                ${truckInvoices.map(invoice => `
+                                    <button class="invoice-tab-link flex-shrink-0 px-4 py-3 font-medium text-gray-600 border-b-2 ${invoice.id === activeInvoiceId ? 'active' : ''}" data-invoice-id="${invoice.id}" data-truck-id="${truck.id}" data-invoice-name="${invoice.name.toLowerCase()}">
+                                        ${invoice.name}
+                                    </button>
+                                `).join('')}
+                            </div>
+                            <div class="invoice-content-container py-6">
+                                ${truckInvoices.map(invoice => `
+                                    <div class="invoice-tab-content ${invoice.id === activeInvoiceId ? 'active' : ''}" data-invoice-id="${invoice.id}">
+                                        ${renderInvoiceContent(invoice, truck)}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : `
+                            <p class="text-gray-500 py-4">No invoices found for this truck.</p>
+                        `}
+                    </div>
+                `;
+            }
+
+            // --- Iscrtavanje sadržaja jedne fakture ---
+            function renderInvoiceContent(invoice, truck) {
+                const invoicePayments = state.payments[invoice.id] || [];
+                const totalPaid = invoicePayments.reduce((acc, p) => acc + p.amount, 0);
+                const remaining = invoice.startingPrice - totalPaid;
+                
+                // Jedinstveni ID za oblast za eksport
+                const exportAreaId = `export-${invoice.id}`;
+
+                return `
+                    <!-- Oblast sažetka (za UI i kao osnova za eksport) -->
+                    <div id="${exportAreaId}" class="bg-white p-6 rounded-lg shadow border border-gray-200 mb-6 printable-area">
+                        <div class="flex flex-wrap justify-between items-start gap-4">
+                            <div>
+                                <h4 class="text-2xl font-bold text-gray-800">${invoice.name}</h4>
+                                <p class="text-sm text-gray-500 mt-1">For Truck: ${truck.name}</p>
+                                <p class="text-sm text-gray-500">Purchase Date: ${formatDate(invoice.purchaseDate)}</p>
+                            </div>
+                            <button class="btn-delete text-xs text-red-500 hover:text-red-700 font-medium no-print" data-delete-invoice-id="${invoice.id}" data-truck-id="${invoice.truckId}">
+                                Delete This Invoice
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6 border-t pt-6">
+                            <div>
+                                <p class="text-sm font-medium text-gray-500">Starting Price</p>
+                                <p class="text-2xl font-semibold text-gray-700">${formatCurrency(invoice.startingPrice)}</p>
+                            </div>
+                            <div>
+                                <p class="text-sm font-medium text-gray-500">Total Paid</p>
+                                <p class="text-2xl font-semibold text-green-600">${formatCurrency(totalPaid)}</p>
+                            </div>
+                            <div>
+                                <p class="text-sm font-medium text-gray-500">Remaining Balance</p>
+                                <p class="text-2xl font-bold ${remaining > 0 ? 'text-red-600' : 'text-green-600'}">${formatCurrency(remaining)}</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Ostatak UI (forme, istorija, eksport) -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Kolona za unos i eksport -->
+                        <div class="space-y-6">
+                            <!-- Forma za unos -->
+                            <div class="bg-white p-6 rounded-lg shadow border border-gray-200 no-print">
+                                <h5 class="text-xl font-semibold mb-4 text-gray-700">Add New Payment</h5>
+                                <form class="add-payment-form space-y-4" data-invoice-id="${invoice.id}" data-truck-id="${invoice.truckId}">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-600">Amount</label>
+                                        <input type="number" step="0.01" name="payment-amount" required class="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-600">Payment Date</label>
+                                        <input type="date" name="payment-date" required class="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg" value="${new Date().toISOString().split('T')[0]}">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-600">Payment Method</label>
+                                        <input type="text" name="payment-method" class="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg" placeholder="e.g., Bank Transfer, Cash">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-600">Note</label>
+                                        <textarea name="payment-note" rows="2" class="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg" placeholder="Optional note..."></textarea>
+                                    </div>
+                                    <button type="submit" class="w-full bg-blue-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-600 transition shadow-sm">
+                                        Add Payment
+                                    </button>
+                                </form>
+                            </div>
+
+                            <!-- Eksport sekcija -->
+                            <div class="bg-white p-6 rounded-lg shadow border border-gray-200 no-print">
+                                <h5 class="text-xl font-semibold mb-4 text-gray-700">Export Invoice</h5>
+                                <p class="text-sm text-gray-500 mb-4">Save an invoice report (summary and payment history).</p>
+                                <div class="flex gap-4">
+                                    <button class="btn-export-pdf flex-1 bg-gray-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-gray-700 transition" 
+                                            data-invoice-id="${invoice.id}" 
+                                            data-invoice-name="${invoice.name}"
+                                            data-truck-name="${truck.name}"
+                                            data-purchase-date="${invoice.purchaseDate}"
+                                            data-starting-price="${invoice.startingPrice}"
+                                            data-total-paid="${totalPaid}"
+                                            data-remaining="${remaining}">
+                                        Save as PDF
+                                    </button>
+                                    <button class="btn-export-jpg flex-1 bg-gray-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-gray-700 transition" 
+                                            data-invoice-id="${invoice.id}" 
+                                            data-invoice-name="${invoice.name}"
+                                            data-truck-name="${truck.name}"
+                                            data-purchase-date="${invoice.purchaseDate}"
+                                            data-starting-price="${invoice.startingPrice}"
+                                            data-total-paid="${totalPaid}"
+                                            data-remaining="${remaining}">
+                                        Save as JPEG
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Istorija plaćanja -->
+                        <div id="payment-history-${invoice.id}" class="bg-white p-6 rounded-lg shadow border border-gray-200">
+                            <h5 class="text-xl font-semibold mb-4 text-gray-700">Payment History</h5>
+                            <div class="payment-history-list space-y-3 max-h-[500px] overflow-y-auto pr-2">
+                                ${invoicePayments.length > 0 ? invoicePayments.map(renderPayment).join('') : '<p class="text-sm text-gray-500">No payments found for this invoice.</p>'}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // --- Iscrtavanje jedne uplate ---
+            function renderPayment(payment) {
+                return `
+                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 text-sm">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="font-bold text-base text-gray-800">${formatCurrency(payment.amount)}</p>
+                                <p class="text-gray-600">Date: ${formatDate(payment.date)}</p>
+                            </div>
+                            <button class="btn-delete flex-shrink-0 ml-2 text-xs text-gray-400 hover:text-red-600 no-print" data-delete-payment-id="${payment.id}" data-invoice-id="${payment.invoiceId}" data-truck-id="${payment.truckId}">
+                                Delete
+                            </button>
+                        </div>
+                        ${payment.method ? `<p class="text-gray-500 mt-2 pt-2 border-t">Method: <span class="font-medium text-gray-700">${payment.method}</span></p>` : ''}
+                        ${payment.note ? `<p class="text-gray-500 mt-2 pt-2 border-t italic">Note: ${payment.note}</p>` : ''}
+                    </div>
+                `;
+            }
+
+            // --- Funkcija za ponovno iscrtavanje samo delova koji su se promenili ---
+            function updateUI() {
+                // Ova funkcija je ključna. Umesto da crta sve,
+                // mogla bi da crta samo aktivni tab, ali za sada je renderApp() sigurniji.
+                renderApp();
+            }
+
+            // --- Funkcija za dodavanje svih event listenera ---
+            function attachEventListeners() {
+                // Forma: Dodaj kamion
+                const addTruckForm = document.getElementById('add-truck-form');
+                if (addTruckForm) addTruckForm.onsubmit = handleAddTruck;
+
+                // Klik na tab kamiona
+                document.querySelectorAll('.tab-link').forEach(tab => {
+                    tab.onclick = handleTruckTabClick;
+                });
+
+                // Forma: Dodaj fakturu
+                document.querySelectorAll('.add-invoice-form').forEach(form => {
+                    form.onsubmit = handleAddInvoice;
+                });
+
+                // Pretraga faktura
+                document.querySelectorAll('.invoice-search').forEach(input => {
+                    input.onkeyup = handleInvoiceSearch;
+                });
+                
+                // Klik na tab fakture
+                document.querySelectorAll('.invoice-tab-link').forEach(tab => {
+                    tab.onclick = handleInvoiceTabClick;
+                });
+
+                // Forma: Dodaj uplatu
+                document.querySelectorAll('.add-payment-form').forEach(form => {
+                    form.onsubmit = handleAddPayment;
+                });
+
+                // Brisanje (kamion, faktura, uplata)
+                document.querySelectorAll('.btn-delete').forEach(button => {
+                    button.onclick = handleDeleteClick;
+                });
+
+                // Eksport (PDF, JPG)
+                document.querySelectorAll('.btn-export-pdf').forEach(button => {
+                    button.onclick = handleExport;
+                });
+                document.querySelectorAll('.btn-export-jpg').forEach(button => {
+                    button.onclick = handleExport;
+                });
+            }
+
+            // --- Event Handlers ---
+
+            async function handleAddTruck(e) {
+                e.preventDefault();
+                const form = e.target;
+                const truckName = form.querySelector('#truck-name').value.trim();
+                if (!truckName) return;
+
+                const newTruck = { name: truckName, createdAt: Timestamp.now() };
+                try {
+                    await addDoc(collection(db, trucksColPath), newTruck);
+                    form.reset();
+                } catch (error) {
+                    console.error("Error adding truck:", error);
+                }
+            }
+
+            async function handleAddInvoice(e) {
+                e.preventDefault();
+                const form = e.target;
+                const truckId = form.dataset.truckId;
+                const name = form['invoice-name'].value.trim();
+                const price = parseFloat(form['invoice-price'].value);
+                const date = form['invoice-date'].value;
+
+                if (!truckId || !name || isNaN(price) || !date) return;
+
+                const newInvoice = {
+                    truckId: truckId,
+                    name: name,
+                    startingPrice: price,
+                    purchaseDate: date,
+                    createdAt: Timestamp.now()
+                };
+                try {
+                    await addDoc(collection(db, invoicesColPath(truckId)), newInvoice);
+                    form.reset();
+                } catch (error) {
+                    console.error("Error adding invoice:", error);
+                }
+            }
+
+            async function handleAddPayment(e) {
+                e.preventDefault();
+                const form = e.target;
+                const invoiceId = form.dataset.invoiceId;
+                const truckId = form.dataset.truckId;
+                const amount = parseFloat(form['payment-amount'].value);
+                const date = form['payment-date'].value;
+                const method = form['payment-method'].value.trim() || null;
+                const note = form['payment-note'].value.trim() || null;
+
+                if (!invoiceId || !truckId || isNaN(amount) || !date || amount <= 0) {
+                    // Ne koristimo alert()
+                    console.warn("Invalid payment input.");
+                    return;
+                }
+
+                const newPayment = {
+                    truckId: truckId,
+                    invoiceId: invoiceId,
+                    amount: amount,
+                    date: date,
+                    method: method,
+                    note: note,
+                    createdAt: Timestamp.now()
+                };
+                try {
+                    await addDoc(collection(db, paymentsColPath(truckId, invoiceId)), newPayment);
+                    form.reset();
+                } catch (error) {
+                    console.error("Error adding payment:", error);
+                }
+            }
+
+            function handleTruckTabClick(e) {
+                state.activeTruckId = e.target.dataset.truckId;
+                updateUI();
+            }
+
+            function handleInvoiceTabClick(e) {
+                const { truckId, invoiceId } = e.target.dataset;
+                state.activeInvoiceIds[truckId] = invoiceId;
+                updateUI();
+            }
+
+            function handleInvoiceSearch(e) {
+                const truckId = e.target.dataset.truckId;
+                const searchTerm = e.target.value.toLowerCase();
+                
+                // Pronađi sve tabove faktura za ovaj kamion
+                const tabContainer = document.querySelector(`.tab-content[data-truck-id="${truckId}"]`);
+                if (!tabContainer) return;
+
+                tabContainer.querySelectorAll('.invoice-tab-link').forEach(tab => {
+                    const invoiceName = tab.dataset.invoiceName;
+                    tab.style.display = invoiceName.includes(searchTerm) ? 'inline-block' : 'none';
+                });
+            }
+
+            function handleDeleteClick(e) {
+                const button = e.currentTarget;
+                const { deleteTruckId, deleteInvoiceId, deletePaymentId, invoiceId, truckId } = button.dataset;
+
+                if (button.classList.contains('confirming-delete')) {
+                    if (deleteTruckId) deleteTruck(deleteTruckId);
+                    else if (deleteInvoiceId) deleteInvoice(deleteInvoiceId, truckId);
+                    else if (deletePaymentId) deletePayment(deletePaymentId, invoiceId, truckId);
+                } else {
+                    button.classList.add('confirming-delete', 'btn-delete-confirm');
+                    button.textContent = "Confirm?";
+                    setTimeout(() => {
+                        if (button) {
+                            button.classList.remove('confirming-delete', 'btn-delete-confirm');
+                            button.textContent = button.dataset.deleteTruckId ? "Delete This Truck" : (button.dataset.deleteInvoiceId ? "Delete This Invoice" : "Delete");
+                        }
+                    }, 4000);
+                }
+            }
+
+            // --- Funkcije za brisanje iz baze ---
+
+            async function deleteTruck(truckId) {
+                try {
+                    const batch = writeBatch(db);
+                    batch.delete(doc(db, trucksColPath, truckId));
+
+                    const invoicesQuery = query(collection(db, invoicesColPath(truckId)));
+                    const invoicesSnapshot = await getDocs(invoicesQuery);
+                    
+                    for (const invoiceDoc of invoicesSnapshot.docs) {
+                        const invoiceId = invoiceDoc.id;
+                        batch.delete(invoiceDoc.ref);
+                        const paymentsQuery = query(collection(db, paymentsColPath(truckId, invoiceId)));
+                        const paymentsSnapshot = await getDocs(paymentsQuery);
+                        paymentsSnapshot.forEach(paymentDoc => batch.delete(paymentDoc.ref));
+                    }
+                    await batch.commit();
+                    state.activeTruckId = null; 
+                } catch (error) {
+                    console.error("Error deleting truck:", error);
+                }
+            }
+
+            async function deleteInvoice(invoiceId, truckId) {
+                try {
+                    const batch = writeBatch(db);
+                    batch.delete(doc(db, invoicesColPath(truckId), invoiceId));
+
+                    const paymentsQuery = query(collection(db, paymentsColPath(truckId, invoiceId)));
+                    const paymentsSnapshot = await getDocs(paymentsQuery);
+                    paymentsSnapshot.forEach(paymentDoc => batch.delete(paymentDoc.ref));
+
+                    await batch.commit();
+                    state.activeInvoiceIds[truckId] = null;
+                } catch (error) {
+                    console.error("Error deleting invoice:", error);
+                }
+            }
+
+            async function deletePayment(paymentId, invoiceId, truckId) {
+                try {
+                    await deleteDoc(doc(db, paymentsColPath(truckId, invoiceId), paymentId));
+                } catch (error) {
+                    console.error("Error deleting payment:", error);
+                }
+            }
+
+            // --- Funkcije za eksport ---
+
+            /**
+             * Generiše HTML za novi, uski format računa.
+             */
+            function getExportHtml(button) {
+                const {
+                    invoiceId,
+                    invoiceName,
+                    truckName,
+                    purchaseDate,
+                    startingPrice,
+                    totalPaid,
+                    remaining
+                } = button.dataset;
+
+                const invoicePayments = state.payments[invoiceId] || [];
+                const remainingNum = parseFloat(remaining);
+
+                return `
+                    <h1>Invoice Report</h1>
+                    <div class="export-header">
+                        <h2>${invoiceName}</h2>
+                        <p>For Truck: ${truckName}</p>
+                        <p>Purchase Date: ${formatDateForExport(purchaseDate)}</p>
+                    </div>
+                    
+                    <div class="export-summary">
+                        <div class="summary-item">
+                            <span class="label">Starting Price</span>
+                            <span class="value">${formatCurrency(parseFloat(startingPrice))}</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="label">Total Paid</span>
+                            <span class="value positive">${formatCurrency(parseFloat(totalPaid))}</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="label">Remaining Balance</span>
+                            <span class="value total ${remainingNum > 0 ? 'negative' : 'positive'}">${formatCurrency(remainingNum)}</span>
+                        </div>
+                    </div>
+
+                    <div class="export-history">
+                        <h3>Payment History</h3>
+                        ${invoicePayments.length > 0 ? invoicePayments.map(p => `
+                            <div class="payment-item">
+                                <div class="p-header">
+                                    <span class="p-amount">${formatCurrency(p.amount)}</span>
+                                    <span class="p-date">${formatDateForExport(p.date)}</span>
+                                </div>
+                                ${(p.method || p.note) ? `
+                                <div class="p-details">
+                                    ${p.method ? `<p><strong>Method:</strong> ${p.method}</p>` : ''}
+                                    ${p.note ? `<p><strong>Note:</strong> ${p.note}</p>` : ''}
+                                </div>
+                                ` : ''}
+                            </div>
+                        `).join('') : '<p>No payments recorded.</p>'}
+                    </div>
+                `;
+            }
+
+            async function handleExport(e) {
+                const button = e.currentTarget;
+                const { invoiceName } = button.dataset;
+                const format = button.classList.contains('btn-export-pdf') ? 'pdf' : 'jpg';
+
+                // 1. Pripremi HTML za eksport (novi format)
+                const exportHtml = getExportHtml(button);
+                if (!exportHtml) {
+                    console.error("Could not generate export HTML.");
+                    return;
+                }
+
+                // 2. Ubaci HTML u skriveni kontejner I UČINI GA VIDLJIVIM
+                exportContainer.innerHTML = exportHtml;
+                exportWrapper.style.top = '0'; // Privremeno ga učini vidljivim za merenje
+                exportWrapper.style.left = '0';
+                exportWrapper.style.zIndex = '100'; // Iznad svega
+                
+                // Pauza da bi se osiguralo da je DOM ažuriran
+                await new Promise(resolve => setTimeout(resolve, 50));
+
+                // 3. Koristi html2canvas da napraviš sliku
+                try {
+                    const canvas = await html2canvas(exportContainer, {
+                        scale: 2, // Bolji kvalitet
+                        useCORS: true,
+                        width: 400 // Fiksiramo širinu
+                    });
+
+                    // Provera da li je canvas validan
+                    if (!canvas || canvas.width === 0 || canvas.height === 0) {
+                        throw new Error("html2canvas returned an invalid canvas (width or height is 0).");
+                    }
+                    
+                    const imgData = canvas.toDataURL('image/jpeg', 1.0);
+                    const safeName = invoiceName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+
+                    if (format === 'jpg') {
+                        // 4a. Sačuvaj kao JPEG
+                        const link = document.createElement('a');
+                        link.href = imgData;
+                        link.download = `report_${safeName}.jpg`;
+                        link.click();
+                    } else {
+                        // 4b. Sačuvaj kao PDF (POPRAVLJENO SKALIRANJE)
+                        const pdfWidth = 210; // A4 širina u mm
+                        const pdfMargin = 10; // 10mm margine
+                        const imgWidth = canvas.width;
+                        const imgHeight = canvas.height;
+                        
+                        // Izračunaj odnos i visinu
+                        const ratio = imgWidth / imgHeight;
+                        const pdfImageWidth = pdfWidth - (pdfMargin * 2);
+                        const pdfImageHeight = pdfImageWidth / ratio;
+
+                        // Provera da li je izračunata visina validna
+                        if (isNaN(pdfImageHeight) || pdfImageHeight <= 0) {
+                             throw new Error(`Invalid calculated PDF height (${pdfImageHeight}). Canvas ratio might be off.`);
+                        }
+
+                        const doc = new jsPDF({
+                            orientation: 'p',
+                            unit: 'mm',
+                            format: 'a4'
+                        });
+                        
+                        doc.addImage(imgData, 'JPEG', pdfMargin, pdfMargin, pdfImageWidth, pdfImageHeight);
+                        doc.save(`report_${safeName}.pdf`);
+                    }
+
+                } catch (err) {
+                    console.error("Error during export:", err);
+                } finally {
+                    // Vrati wrapper u skriveno stanje
+                    exportWrapper.style.top = '-9999px';
+                    exportWrapper.style.left = '-9999px';
+                    exportWrapper.style.zIndex = 'auto';
+                    exportContainer.innerHTML = ''; // Očisti kontejner
+                }
+            }
+
+
+            // --- Postavljanje onSnapshot listenera (slušalaca) ---
+
+            function setupListeners() {
+                console.log("Setting up listeners...");
+                // 1. Slušalac za Kamione
+                const trucksQuery = query(collection(db, trucksColPath));
+                onSnapshot(trucksQuery, (snapshot) => {
+                    console.log("Listener (Trucks): data received.");
+                    state.trucks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    state.trucks.sort((a, b) => a.name.localeCompare(b.name));
+
+                    if (!state.activeTruckId && state.trucks.length > 0) {
+                        state.activeTruckId = state.trucks[0].id;
+                    }
+                    if (state.trucks.length === 0) {
+                        state.activeTruckId = null;
+                    }
+
+                    // Obriši stare slušaoce za fakture (ako postoje)
+                    // TODO: Ovo se može optimizovati da se ne kače ponovo
+                    state.invoices = {};
+                    state.payments = {};
+                    state.trucks.forEach(truck => {
+                        setupInvoiceListener(truck.id);
+                    });
+
+                    updateUI();
+                }, (error) => console.error("Error (Listener Trucks):", error));
+            }
+
+            function setupInvoiceListener(truckId) {
+                // 2. Slušalac za Fakture (za dati kamion)
+                const invoicesQuery = query(collection(db, invoicesColPath(truckId)));
+                onSnapshot(invoicesQuery, (snapshot) => {
+                    console.log(`Listener (Invoices for ${truckId}): data received.`);
+                    state.invoices[truckId] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    state.invoices[truckId].sort((a, b) => b.purchaseDate.localeCompare(a.purchaseDate));
+                    
+                    if (!state.activeInvoiceIds[truckId] && state.invoices[truckId].length > 0) {
+                        state.activeInvoiceIds[truckId] = state.invoices[truckId][0].id;
+                    }
+                    if (state.invoices[truckId].length === 0) {
+                        state.activeInvoiceIds[truckId] = null;
+                    }
+
+                    // Obriši stare slušaoce za uplate
+                    // TODO: Optimizacija
+                    state.invoices[truckId].forEach(invoice => {
+                        setupPaymentListener(truckId, invoice.id);
+                    });
+
+                    updateUI();
+                }, (error) => console.error(`Error (Listener Invoices ${truckId}):`, error));
+            }
+
+            function setupPaymentListener(truckId, invoiceId) {
+                // 3. Slušalac za Uplate (za datu fakturu)
+                const paymentsQuery = query(collection(db, paymentsColPath(truckId, invoiceId)));
+                onSnapshot(paymentsQuery, (snapshot) => {
+                    console.log(`Listener (Payments for ${invoiceId}): data received.`);
+                    state.payments[invoiceId] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    state.payments[invoiceId].sort((a, b) => b.date.localeCompare(a.date));
+                    
+                    updateUI();
+                }, (error) => console.error(`Error (Listener Payments ${invoiceId}):`, error));
+            }
+
+            // --- Inicijalno pokretanje slušalaca ---
+            setupListeners();
+        }
+
+    </script>
+</body>
+</html>
